@@ -4,6 +4,7 @@ import pandas as pd
 import tensorflow as tf
 import seaborn as sns
 import matplotlib.pyplot as plt
+import joblib
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.datasets import load_iris
 from tensorflow import keras
@@ -11,22 +12,25 @@ from keras import layers
 from tensorflow.keras import backend as K
 
 # === Directory setup ===
-SAVE_DIR = "plots"
-CHECKPOINT_DIR = "checkpoints"
-MODEL_DIR = "final_models"
-DATA_DIR = "synthetic_output"
+SAVE_DIR = r"P:\synthdata\iris\plots"
+CHECKPOINT_DIR = r"P:\synthdata\iris\checkpoints"
+MODEL_DIR = r"P:\synthdata\iris\final_models"
+DATA_DIR = r"P:\synthdata\iris\synthetic_output"
+SCALER_DIR = r"P:\synthdata\iris\scalersscalers"
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(SCALER_DIR, exist_ok=True)
 
 # === Load and preprocess Iris dataset ===
 iris = load_iris()
 X = iris.data
 scaler = MinMaxScaler()
 X_scaled = scaler.fit_transform(X)
-print("\u2705 Iris dataset loaded and normalized. Shape:", X_scaled.shape)
+joblib.dump(scaler, f"{SCALER_DIR}/iris_scaler.save")
+print("✅ Iris dataset normalized and scaler saved. Shape:", X_scaled.shape)
 
 latent_dim = 5
 
@@ -46,7 +50,7 @@ z_mean = layers.Dense(latent_dim, name="z_mean")(x)
 z_log_var = layers.Dense(latent_dim, name="z_log_var")(x)
 z = layers.Lambda(sampling, output_shape=(latent_dim,), name="z")([z_mean, z_log_var])
 encoder = keras.Model(inputs, [z_mean, z_log_var, z], name="encoder")
-print("\u2705 Encoder Model Created.")
+print("✅ Encoder Model Created.")
 
 # === Decoder ===
 latent_inputs = keras.Input(shape=(latent_dim,))
@@ -54,26 +58,27 @@ x = layers.Dense(8, activation="relu")(latent_inputs)
 x = layers.Dense(16, activation="relu")(x)
 outputs = layers.Dense(4, activation="linear")(x)
 decoder = keras.Model(latent_inputs, outputs, name="decoder")
-print("\u2705 Decoder Model Created.")
+print("✅ Decoder Model Created.")
 
 # === VAE Model ===
 outputs = decoder(z)
+
 class VAELossLayer(keras.layers.Layer):
     def call(self, inputs):
         z_mean, z_log_var = inputs
         kl_loss = -0.5 * tf.reduce_mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
         self.add_loss(kl_loss * 0.01)
         return inputs
+
 vae_loss_layer = VAELossLayer()([z_mean, z_log_var])
 vae = keras.Model(inputs, outputs, name="vae")
 
-# === Loss Function ===
 def vae_loss(y_true, y_pred):
     reconstruction_loss = tf.reduce_mean(tf.square(y_true - y_pred)) * 4
     return reconstruction_loss
 
 vae.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001), loss=vae_loss)
-print("\u2705 VAE Model Compiled.")
+print("✅ VAE Model Compiled.")
 
 # === Training ===
 EPOCHS = 300
@@ -110,12 +115,15 @@ z1 = z_mean[np.random.randint(0, len(z_mean), num_samples)]
 z2 = z_mean[np.random.randint(0, len(z_mean), num_samples)]
 z_synthetic = (1 - alpha) * z1 + alpha * z2
 synthetic_scaled = decoder.predict(z_synthetic)
+
+# Load and apply saved scaler for inverse transformation
+scaler = joblib.load(f"{SCALER_DIR}/iris_scaler.save")
 synthetic_data = scaler.inverse_transform(synthetic_scaled)
 synthetic_df = pd.DataFrame(synthetic_data, columns=iris.feature_names)
 
 # === Save synthetic data ===
 synthetic_df.to_csv(f"{DATA_DIR}/iris_synthetic_data.csv", index=False)
-print("\u2705 Synthetic data saved to iris_synthetic_data.csv")
+print("✅ Synthetic data saved to iris_synthetic_data.csv")
 
 # === KDE Plots ===
 real_df = pd.DataFrame(scaler.inverse_transform(X_scaled), columns=iris.feature_names)
@@ -134,4 +142,4 @@ plt.show()
 encoder.save(f"{MODEL_DIR}/vae_encoder_model.keras")
 decoder.save(f"{MODEL_DIR}/vae_decoder_model.keras")
 vae.save(f"{MODEL_DIR}/vae_full_model.keras")
-print("\u2705 Final models saved.")
+print("✅ Final models and scaler saved.")
