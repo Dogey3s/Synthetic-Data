@@ -8,36 +8,32 @@ from tensorflow import keras
 from keras import layers
 from tensorflow.keras import backend as K
 from scipy.stats import zscore
+import joblib
 
 # === Directory Setup ===
-os.makedirs(r"P:\synthdata\adhd\adhd_outputs", exist_ok=True)
-os.makedirs(r"P:\synthdata\adhd\adhd_models", exist_ok=True)
+OUTPUT_DIR = r"P:\synthdata\adhd\adhd_outputs"
+MODEL_DIR = r"P:\synthdata\adhd\adhd_models"
+SCALER_DIR = r"P:\synthdata\adhd\scalers"
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
+os.makedirs(SCALER_DIR, exist_ok=True)
 
 # === Load and Clean Dataset ===
-# Load ADHD dataset
 df = pd.read_csv("P:/DataSets/allSubs_testSet_phenotypic_dx.csv")
-
-# Specify relevant features
 features = ["Age", "ADHD Index", "Inattentive", "Hyper/Impulsive", "Full4 IQ"]
-
-# Select only the relevant columns
-df = df[features]
 
 # Replace invalid entries with NaN
 invalid_entries = ["-999", "-999.0", "N/A", "pending", "L", ""]
-df = df.replace(invalid_entries, np.nan)
-
-# Drop rows with any NaNs
-df = df.dropna()
-
-# Convert to float
+df = df[features].replace(invalid_entries, np.nan).dropna()
 df = df.astype(float)
+df = df[(np.abs(zscore(df)) < 3).all(axis=1)]  # Remove outliers
 
-# Remove outliers using z-score filtering
-df = df[(np.abs(zscore(df)) < 3).all(axis=1)]
 # === Normalize Data ===
 scaler = MinMaxScaler()
 X_scaled = scaler.fit_transform(df)
+joblib.dump(scaler, os.path.join(SCALER_DIR, "adhd_scaler.save"))
+print("✅ Scaler saved.")
 
 # === Hyperparameters ===
 input_dim = X_scaled.shape[1]
@@ -96,7 +92,7 @@ synthetic_data = scaler.inverse_transform(synthetic_scaled)
 # === Save Outputs ===
 real_df = pd.DataFrame(scaler.inverse_transform(X_scaled), columns=features)
 synthetic_df = pd.DataFrame(synthetic_data, columns=features)
-synthetic_df.to_csv("adhd_outputs/synthetic_adhd_data.csv", index=False)
+synthetic_df.to_csv(os.path.join(OUTPUT_DIR, "synthetic_adhd_data.csv"), index=False)
 
 # === KDE Plots ===
 plt.figure(figsize=(12, 6))
@@ -107,12 +103,12 @@ for i, col in enumerate(features):
     plt.title(col)
     plt.legend()
 plt.tight_layout()
-plt.savefig("adhd_outputs/real_vs_synthetic_kde.png")
+plt.savefig(os.path.join(OUTPUT_DIR, "real_vs_synthetic_kde.png"))
 plt.show()
 
 # === Save Models ===
-encoder.save("adhd_models/vae_encoder.keras")
-decoder.save("adhd_models/vae_decoder.keras")
-vae.save("adhd_models/vae_full.keras")
+encoder.save(os.path.join(MODEL_DIR, "vae_encoder.keras"))
+decoder.save(os.path.join(MODEL_DIR, "vae_decoder.keras"))
+vae.save(os.path.join(MODEL_DIR, "vae_full.keras"))
 
 print("✅ Synthetic ADHD data generation complete.")
